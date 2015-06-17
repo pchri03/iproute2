@@ -75,6 +75,7 @@ static void usage(void)
 	fprintf(stderr, "NODE_SPEC := [ TYPE ] PREFIX [ tos TOS ]\n");
 	fprintf(stderr, "             [ table TABLE_ID ] [ proto RTPROTO ]\n");
 	fprintf(stderr, "             [ scope SCOPE ] [ metric METRIC ]\n");
+	fprintf(stderr, "             [ mpath MP_ALGO ]\n");
 	fprintf(stderr, "INFO_SPEC := NH OPTIONS FLAGS [ nexthop NH ]...\n");
 	fprintf(stderr, "NH := [ via [ FAMILY ] ADDRESS ] [ dev STRING ] [ weight NUMBER ] NHFLAGS\n");
 	fprintf(stderr, "FAMILY := [ inet | inet6 | ipx | dnet | mpls | bridge | link ]");
@@ -89,6 +90,7 @@ static void usage(void)
 	fprintf(stderr, "          unreachable | prohibit | blackhole | nat ]\n");
 	fprintf(stderr, "TABLE_ID := [ local | main | default | all | NUMBER ]\n");
 	fprintf(stderr, "SCOPE := [ host | link | global | NUMBER ]\n");
+	fprintf(stderr, "MP_ALGO := [ l3 | l4 | per-packet ]\n");
 	fprintf(stderr, "NHFLAGS := [ onlink | pervasive ]\n");
 	fprintf(stderr, "RTPROTO := [ kernel | boot | static | NUMBER ]\n");
 	fprintf(stderr, "PREF := [ low | medium | high ]\n");
@@ -401,6 +403,17 @@ int print_route(const struct sockaddr_nl *who, struct nlmsghdr *n, void *arg)
 	if (r->rtm_tos && filter.tosmask != -1) {
 		SPRINT_BUF(b1);
 		fprintf(fp, "tos %s ", rtnl_dsfield_n2a(r->rtm_tos, b1, sizeof(b1)));
+	}
+
+	if (tb[RTA_MP_ALGO]) {
+		__u32 mp_alg = *(__u32 *) RTA_DATA(tb[RTA_MP_ALGO]);
+		if (mp_alg == RT_MP_ALG_PER_PACKET) {
+			fprintf(fp, "mpath per-packet ");
+		} else if (mp_alg == RT_MP_ALG_L4_HASH) {
+			fprintf(fp, "mpath l4 ");
+		} else if (mp_alg != RT_MP_ALG_L3_HASH) {
+			fprintf(fp, "mpath unknown");
+		}
 	}
 
 	if (tb[RTA_GATEWAY] && filter.rvia.bitlen != host_len) {
@@ -1084,6 +1097,21 @@ static int iproute_modify(int cmd, unsigned flags, int argc, char **argv)
 			else if (get_u8(&pref, *argv, 0))
 				invarg("\"pref\" value is invalid\n", *argv);
 			addattr8(&req.n, sizeof(req), RTA_PREF, pref);
+		} else if (matches(*argv, "mpath") == 0 ||
+			   matches(*argv, "mp") == 0) {
+			__u32 mp_alg;
+
+			NEXT_ARG();
+			if (matches(*argv, "l3") == 0) {
+				mp_alg = RT_MP_ALG_L3_HASH;
+			} else if (matches(*argv, "l4") == 0) {
+				mp_alg = RT_MP_ALG_L4_HASH;
+			} else if (matches(*argv, "per-packet") == 0) {
+				mp_alg = RT_MP_ALG_PER_PACKET;
+			} else {
+				invarg("\"mpath\" value is invalid\n", *argv);
+			}
+			addattr32(&req.n, sizeof(req), RTA_MP_ALGO, mp_alg);
 		} else {
 			int type;
 			inet_prefix dst;
